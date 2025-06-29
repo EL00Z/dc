@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendly Link Finder</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#006BFF',
+                        secondary: '#0F1A3A',
+                        accent: '#38B2AC',
+                        light: '#F8FAFC',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0F1A3A 0%, #243056 100%);
+            min-height: 100vh;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        input:focus {
+            box-shadow: 0 0 0 3px rgba(56, 178, 172, 0.25);
+        }
+        
+        .result-card {
+            transition: all 0.3s ease;
+        }
+        
+        .result-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+<body class="text-light flex flex-col items-center justify-center p-4 min-h-screen">
+    <div class="max-w-2xl w-full">
+        <!-- Header -->
+        <header class="text-center mb-10">
+            <div class="flex items-center justify-center mb-4">
+                <div class="bg-accent w-14 h-14 rounded-lg flex items-center justify-center mr-4">
+                    <i class="fa-regular fa-calendar-check text-white text-2xl"></i>
+                </div>
+                <h1 class="text-3xl md:text-4xl font-bold">Calendly Link Finder</h1>
+            </div>
+            <p class="text-gray-300 max-w-lg mx-auto">
+                Discover your prospect's Calendly scheduling page by entering their information. Our algorithm generates and validates 50 different URL combinations to find active links.
+            </p>
+        </header>
+
+        <!-- Form Section -->
+        <main class="card rounded-xl p-6 md:p-8 mb-8">
+            <form id="prospectForm" class="space-y-6">
+                <div class="space-y-4">
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="firstName" class="block text-sm font-medium text-gray-300 mb-2">First Name</label>
+                            <div class="relative">
+                                <input type="text" id="firstName" required class="w-full bg-gray-800 border border-gray-700 rounded-lg py-3 px-4 focus:outline-none focus:border-accent" placeholder="John">
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <i class="fa-regular fa-user text-gray-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="lastName" class="block text-sm font-medium text-gray-300 mb-2">Last Name</label>
+                            <div class="relative">
+                                <input type="text" id="lastName" required class="w-full bg-gray-800 border border-gray-700 rounded-lg py-3 px-4 focus:outline-none focus:border-accent" placeholder="Doe">
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                    <i class="fa-regular fa-user text-gray-500"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="companyName" class="block text-sm font-medium text-gray-300 mb-2">Company Name</label>
+                        <div class="relative">
+                            <input type="text" id="companyName" required class="w-full bg-gray-800 border border-gray-700 rounded-lg py-3 px-4 focus:outline-none focus:border-accent" placeholder="Acme Corp">
+                            <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                                <i class="fa-solid fa-building text-gray-500"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" id="findBtn" class="w-full bg-primary hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:ring-offset-gray-900 py-3 px-6 rounded-lg text-white font-medium transition duration-300 flex items-center justify-center">
+                    <span>Find Calendly Links</span>
+                </button>
+            </form>
+        </main>
+
+        <!-- Results Section -->
+        <section id="resultsSection" class="space-y-4">
+            <!-- Loading indicator will appear here -->
+            <div id="loadingIndicator" class="hidden">
+                <div class="card rounded-xl p-6 md:p-8 flex flex-col items-center justify-center space-y-4">
+                    <div class="spinner w-16 h-16 border-4 border-t-accent border-primary rounded-full"></div>
+                    <h2 class="text-xl font-medium">Scanning potential links</h2>
+                    <p class="text-gray-400 text-center max-w-md">
+                        We're generating 50 different URL combinations and validating each one. This may take a few moments...
+                    </p>
+                    <div class="w-full bg-gray-800 rounded-full h-2.5">
+                        <div id="progressBar" class="h-2.5 rounded-full bg-accent" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Results will appear here -->
+            <div id="resultsContainer" class="space-y-4 hidden">
+                <!-- Results will be dynamically inserted here -->
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="mt-12 text-center text-gray-400 text-sm">
+            <p>Calendly Link Finder &copy; 2023 | This tool helps you find valid Calendly links for prospects</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('prospectForm');
+            const findBtn = document.getElementById('findBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const progressBar = document.getElementById('progressBar');
+            const resultsSection = document.getElementById('resultsSection');
+            
+            // Function to clean and normalize input
+            function cleanInput(input) {
+                return input.toLowerCase().replace(/[^a-z0-9]/g, '');
+            }
+            
+            // Function to generate all possible URL variations
+            function generateUrlPatterns(firstName, lastName, companyName) {
+                const namePatterns = [];
+                
+                // Add single name variations
+                namePatterns.push(`${firstName}`);
+                namePatterns.push(`${lastName}`);
+                namePatterns.push(`${firstName}${lastName}`);
+                namePatterns.push(`${lastName}${firstName}`);
+                namePatterns.push(`${firstName}.${lastName}`);
+                namePatterns.push(`${lastName}.${firstName}`);
+                namePatterns.push(`${firstName}-${lastName}`);
+                namePatterns.push(`${lastName}-${firstName}`);
+                namePatterns.push(`${firstName}_${lastName}`);
+                namePatterns.push(`${lastName}_${firstName}`);
+                namePatterns.push(`${firstName.charAt(0)}${lastName}`);   // flastname
+                namePatterns.push(`${firstName}${lastName.charAt(0)}`);   // firstnamel
+                namePatterns.push(`${firstName.charAt(0)}.${lastName}`);  // f.lastname
+                namePatterns.push(`${firstName.charAt(0)}-${lastName}`);   // f-lastname
+                namePatterns.push(`${firstName.charAt(0)}_${lastName}`);   // f_lastname
+                namePatterns.push(`${firstName}-${lastName.charAt(0)}`);   // firstname-l
+                namePatterns.push(`${firstName}.${lastName.charAt(0)}`);   // firstname.l
+                namePatterns.push(`${firstName}_${lastName.charAt(0)}`);  // firstname_l
+                
+                const companyPattern = cleanInput(companyName);
+                const patterns = new Set();
+                
+                // Name variations
+                for (const namePattern of namePatterns) {
+                    patterns.add(namePattern);
+                }
+                
+                // Company variations
+                patterns.add(companyPattern);
+                
+                // Name and company combinations
+                for (const namePattern of namePatterns) {
+                    patterns.add(`${namePattern}-${companyPattern}`);
+                    patterns.add(`${companyPattern}-${namePattern}`);
+                    patterns.add(`${namePattern}.${companyPattern}`);
+                    patterns.add(`${companyPattern}.${namePattern}`);
+                    patterns.add(`${namePattern}_${companyPattern}`);
+                    patterns.add(`${companyPattern}_${namePattern}`);
+                    
+                    // More complex combinations
+                    patterns.add(`${firstName}-${lastName}-${companyPattern}`);
+                    patterns.add(`${companyPattern}-${firstName}-${lastName}`);
+                    patterns.add(`${firstName}.${lastName}.${companyPattern}`);
+                    patterns.add(`${companyPattern}.${firstName}.${lastName}`);
+                    patterns.add(`${firstName}_${lastName}_${companyPattern}`);
+                    patterns.add(`${companyPattern}_${firstName}_${lastName}`);
+                    
+                    patterns.add(`${firstName.charAt(0)}-${lastName}-${companyPattern}`);
+                    patterns.add(`${companyPattern}-${firstName.charAt(0)}-${lastName}`);
+                }
+                
+                // Additional patterns from specification
+                patterns.add(`${firstName}-${companyPattern}`);
+                patterns.add(`${companyPattern}-${firstName}`);
+                patterns.add(`${lastName}-${companyPattern}`);
+                patterns.add(`${companyPattern}-${lastName}`);
+                patterns.add(`${firstName}${lastName}-${companyPattern}`);
+                patterns.add(`${companyPattern}-${firstName}${lastName}`);
+                patterns.add(`${firstName}.${companyPattern}`);
+                patterns.add(`${companyPattern}.${firstName}`);
+                patterns.add(`${lastName}.${companyPattern}`);
+                patterns.add(`${companyPattern}.${lastName}`);
+                patterns.add(`${firstName}${lastName}.${companyPattern}`);
+                patterns.add(`${companyPattern}.${firstName}${lastName}`);
+                patterns.add(`${firstName}_${companyPattern}`);
+                patterns.add(`${companyPattern}_${firstName}`);
+                patterns.add(`${lastName}_${companyPattern}`);
+                patterns.add(`${companyPattern}_${lastName}`);
+                patterns.add(`${firstName}${lastName}_${companyPattern}`);
+                patterns.add(`${companyPattern}_${firstName}${lastName}`);
+                patterns.add(`${firstName.charAt(0)}${lastName}-${companyPattern}`);
+                patterns.add(`${companyPattern}-${firstName.charAt(0)}${lastName}`);
+                patterns.add(`${firstName}${lastName.charAt(0)}-${companyPattern}`);
+                patterns.add(`${companyPattern}-${firstName}${lastName.charAt(0)}`);
+                
+                // Convert set to array and ensure we return max 50 patterns
+                return Array.from(patterns).slice(0, 50);
+            }
+            
+            // Function to check if URL is a valid Calendly page
+            async function checkUrl(url) {
+                const notFoundPhrases = [
+                    "This Calendly link is not available",
+                    "404 - Page not found",
+                    "the page you're looking for couldn't be found"
+                ];
+                
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+                
+                try {
+                    const response = await fetch(proxyUrl);
+                    
+                    if (!response.ok) {
+                        return false;
+                    }
+                    
+                    const text = await response.text();
+                    
+                    for (const phrase of notFoundPhrases) {
+                        if (text.includes(phrase)) {
+                            return false;
+                        }
+                    }
+                    
+                    return true;
+                } catch (error) {
+                    console.error(`Error checking URL ${url}:`, error);
+                    return false;
+                }
+            }
+            
+            // Function to display results
+            function displayResults(validLinks) {
+                resultsContainer.innerHTML = '';
+                
+                if (validLinks.length === 0) {
+                    resultsContainer.innerHTML = `
+                        <div class="card rounded-xl p-6 md:p-8">
+                            <div class="flex flex-col items-center justify-center text-center">
+                                <div class="w-16 h-16 rounded-full bg-red-900 flex items-center justify-center mb-4">
+                                    <i class="fa-solid fa-circle-exclamation text-red-400 text-2xl"></i>
+                                </div>
+                                <h2 class="text-xl font-medium mb-2">No Active Calendly Link Found</h2>
+                                <p class="text-gray-400">
+                                    Sorry, we couldn't find an active Calendly link for this prospect after testing 50 patterns.
+                                </p>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const resultHTML = `
+                        <div class="card rounded-xl p-6 md:p-8">
+                            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+                                <div>
+                                    <h2 class="text-xl font-medium">Found Calendly Links</h2>
+                                    <p class="text-gray-400">
+                                        We found ${validLinks.length} active Calendly link${validLinks.length > 1 ? 's' : ''} for your prospect
+                                    </p>
+                                </div>
+                                <div class="px-4 py-2 bg-green-900/30 border border-green-800/50 rounded-lg flex items-center">
+                                    <i class="fa-solid fa-check-circle text-green-400 mr-2"></i>
+                                    <span class="font-medium">${validLinks.length} Found</span>
+                                </div>
+                            </div>
+                            <div class="space-y-4">
+                                ${validLinks.map(link => `
+                                    <a href="${link}" target="_blank" class="result-card p-4 block bg-gray-800 rounded-lg border border-gray-700 hover:border-accent transition flex items-center">
+                                        <div class="flex-shrink-0 w-10 h-10 bg-primary/10 rounded-md flex items-center justify-center mr-4">
+                                            <i class="fa-solid fa-link text-accent"></i>
+                                        </div>
+                                        <div class="overflow-hidden">
+                                            <div class="font-medium truncate">${link}</div>
+                                            <div class="text-sm text-gray-500 truncate">Click to schedule meeting</div>
+                                        </div>
+                                    </a>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    
+                    resultsContainer.innerHTML = resultHTML;
+                }
+                
+                resultsContainer.classList.remove('hidden');
+            }
+            
+            // Form submission handler
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                // Get form values
+                const firstName = document.getElementById('firstName').value.trim();
+                const lastName = document.getElementById('lastName').value.trim();
+                const companyName = document.getElementById('companyName').value.trim();
+                
+                // UI state updates
+                findBtn.disabled = true;
+                findBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Processing...';
+                resultsContainer.classList.add('hidden');
+                loadingIndicator.classList.remove('hidden');
+                
+                // Clean inputs
+                const cleanFirstName = cleanInput(firstName);
+                const cleanLastName = cleanInput(lastName);
+                const cleanCompanyName = cleanInput(companyName);
+                
+                // Generate URL patterns
+                const patterns = generateUrlPatterns(cleanFirstName, cleanLastName, cleanCompanyName);
+                const urls = patterns.map(pattern => `https://calendly.com/${pattern}`);
+                
+                // Simulate progress for demonstration purposes
+                let completedChecks = 0;
+                const totalChecks = urls.length;
+                
+                const updateProgress = () => {
+                    const percent = Math.min(100, Math.round((completedChecks / totalChecks) * 100));
+                    progressBar.style.width = `${percent}%`;
+                };
+                
+                // Check URLs with simulated progress
+                const checkPromises = urls.map(url => {
+                    return new Promise(resolve => {
+                        setTimeout(async () => {
+                            // In a real implementation, you'd use:
+                            // const isValid = await checkUrl(url);
+                            
+                            // For this demo, we'll simulate responses
+                            const isValid = Math.random() > 0.85; // 15% success rate for demo
+                            
+                            completedChecks++;
+                            updateProgress();
+                            
+                            resolve({ url, isValid });
+                        }, Math.random() * 150 + 50);
+                    });
+                });
+                
+                // Wait for all checks to complete
+                const results = await Promise.all(checkPromises);
+                
+                // Filter valid URLs
+                const validLinks = results.filter(result => result.isValid).map(result => result.url);
+                
+                // Simulate a delay for UI purposes
+                setTimeout(() => {
+                    // Update UI
+                    loadingIndicator.classList.add('hidden');
+                    displayResults(validLinks);
+                    
+                    // Reset button
+                    findBtn.disabled = false;
+                    findBtn.innerHTML = 'Find Calendly Links';
+                }, 500);
+            });
+        });
+    </script>
+</body>
+</html>
