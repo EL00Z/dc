@@ -6,6 +6,7 @@
     <title>Calendly Link Finder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -71,20 +72,63 @@
         .btn-copy:hover {
             background-color: #e6f0ff;
         }
+        
+        .tab-button {
+            transition: all 0.3s ease;
+        }
+        
+        .tab-button.active {
+            background-color: #006BFF;
+            color: white;
+        }
+        
+        .tab-button:not(.active) {
+            background-color: #f1f5f9;
+            color: #64748b;
+        }
+        
+        .file-upload-area {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload-area.dragover {
+            border-color: #006BFF;
+            background-color: #f0f7ff;
+        }
+        
+        .bulk-results-table {
+            max-height: 500px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body class="bg-gray-50 py-8 px-4">
-    <div class="max-w-3xl mx-auto">
+    <div class="max-w-6xl mx-auto">
         <!-- Header -->
         <header class="text-center mb-12">
             <h1 class="text-3xl md:text-4xl font-bold text-dark mb-3">Find Calendly Links</h1>
-            <p class="text-gray-600 max-w-xl mx-auto">Enter a prospect's information to discover their active Calendly scheduling page (dedicated to GB)</p>
+            <p class="text-gray-600 max-w-xl mx-auto">Enter a prospect's information or upload a CSV to discover their active Calendly scheduling pages (dedicated to GB)</p>
         </header>
+        
+        <!-- Mode Selector -->
+        <div class="mb-8">
+            <div class="flex justify-center">
+                <div class="bg-white rounded-lg p-1 shadow-sm">
+                    <button id="singleTab" class="tab-button active px-6 py-2 rounded-md font-medium transition">
+                        <i class="fas fa-user mr-2"></i>Single Search
+                    </button>
+                    <button id="bulkTab" class="tab-button px-6 py-2 rounded-md font-medium transition">
+                        <i class="fas fa-upload mr-2"></i>Bulk Upload
+                    </button>
+                </div>
+            </div>
+        </div>
         
         <!-- Main Card -->
         <div class="card bg-white mb-8">
-            <!-- Form Section -->
-            <div class="p-6 md:p-8 border-b">
+            <!-- Single Search Form -->
+            <div id="singleForm" class="p-6 md:p-8 border-b">
                 <form id="searchForm">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div>
@@ -109,14 +153,45 @@
                 </form>
             </div>
             
+            <!-- Bulk Upload Form -->
+            <div id="bulkForm" class="hidden p-6 md:p-8 border-b">
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload CSV File</label>
+                    <div id="fileUploadArea" class="file-upload-area rounded-lg p-8 text-center cursor-pointer">
+                        <div id="uploadPrompt">
+                            <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4"></i>
+                            <p class="text-lg font-medium text-gray-700 mb-1">Drop your CSV file here or click to browse</p>
+                            <p class="text-sm text-gray-500 mb-4">Maximum file size: 10MB</p>
+                            <p class="text-xs text-gray-400">Required columns: firstname, lastname (company is optional)</p>
+                        </div>
+                        <div id="fileInfo" class="hidden">
+                            <i class="fas fa-file-csv text-4xl text-green-500 mb-4"></i>
+                            <p id="fileName" class="text-lg font-medium text-gray-700 mb-1"></p>
+                            <p id="fileSize" class="text-sm text-gray-500 mb-2"></p>
+                            <p id="recordCount" class="text-sm text-green-600"></p>
+                        </div>
+                    </div>
+                    <input type="file" id="csvFile" accept=".csv" class="hidden">
+                </div>
+                <button id="bulkSearchBtn" type="button" disabled class="w-full bg-gray-400 text-white font-medium py-3 px-6 rounded-lg transition flex items-center justify-center">
+                    <span id="bulkBtnText">Upload a CSV file to start</span>
+                    <span id="bulkSpinner" class="ml-2 hidden">
+                        <i class="fas fa-spinner spin"></i>
+                    </span>
+                </button>
+            </div>
+            
             <!-- Progress Section -->
             <div id="progressSection" class="hidden p-6 border-b">
                 <div class="flex justify-between items-center mb-2">
                     <span id="progressText" class="text-sm font-medium text-gray-700">Testing URLs...</span>
                     <span id="progressFraction" class="text-sm font-medium text-gray-500">0/0</span>
                 </div>
-                <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
                     <div id="progressBar" class="progress-bar bg-primary" style="width: 0%"></div>
+                </div>
+                <div id="bulkProgressDetails" class="hidden text-xs text-gray-500">
+                    <span id="currentProspect"></span> • <span id="prospectProgress"></span>
                 </div>
             </div>
             
@@ -124,11 +199,36 @@
             <div id="resultsSection" class="hidden p-6">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-semibold text-gray-900">Results</h3>
-                    <span id="resultsTime" class="text-sm text-gray-500"></span>
+                    <div class="flex items-center gap-4">
+                        <button id="exportBtn" class="hidden bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                            <i class="fas fa-download mr-2"></i>Export Results
+                        </button>
+                        <span id="resultsTime" class="text-sm text-gray-500"></span>
+                    </div>
                 </div>
                 
-                <div id="resultsContainer" class="space-y-3">
-                    <!-- Results will appear here -->
+                <!-- Single Results -->
+                <div id="singleResults" class="space-y-3">
+                    <!-- Single search results will appear here -->
+                </div>
+                
+                <!-- Bulk Results -->
+                <div id="bulkResults" class="hidden">
+                    <div class="bulk-results-table border rounded-lg overflow-hidden">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-900">Name</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-900">Company</th>
+                                    <th class="text-left py-3 px-4 font-medium text-gray-900">Found Links</th>
+                                    <th class="text-center py-3 px-4 font-medium text-gray-900">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bulkResultsBody">
+                                <!-- Bulk results will appear here -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 
                 <div id="emptyResults" class="py-8 text-center">
@@ -149,11 +249,15 @@
             <ul class="space-y-2 text-gray-600">
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
-                    <span>Enter first and last name (company is optional)</span>
+                    <span>Single: Enter first and last name (company is optional)</span>
                 </li>
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
-                    <span>We generate and test 50+ possible URL patterns</span>
+                    <span>Bulk: Upload CSV with firstname, lastname, company (optional) columns</span>
+                </li>
+                <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
+                    <span>We generate and test 50+ possible URL patterns per prospect</span>
                 </li>
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
@@ -170,49 +274,199 @@
     
     <script>
         // DOM Elements
+        const singleTab = document.getElementById('singleTab');
+        const bulkTab = document.getElementById('bulkTab');
+        const singleForm = document.getElementById('singleForm');
+        const bulkForm = document.getElementById('bulkForm');
         const searchForm = document.getElementById('searchForm');
         const searchBtn = document.getElementById('searchBtn');
         const btnText = document.getElementById('btnText');
         const spinner = document.getElementById('spinner');
+        const bulkSearchBtn = document.getElementById('bulkSearchBtn');
+        const bulkBtnText = document.getElementById('bulkBtnText');
+        const bulkSpinner = document.getElementById('bulkSpinner');
+        const fileUploadArea = document.getElementById('fileUploadArea');
+        const csvFile = document.getElementById('csvFile');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const recordCount = document.getElementById('recordCount');
         const progressSection = document.getElementById('progressSection');
         const progressText = document.getElementById('progressText');
         const progressFraction = document.getElementById('progressFraction');
         const progressBar = document.getElementById('progressBar');
+        const bulkProgressDetails = document.getElementById('bulkProgressDetails');
+        const currentProspect = document.getElementById('currentProspect');
+        const prospectProgress = document.getElementById('prospectProgress');
         const resultsSection = document.getElementById('resultsSection');
-        const resultsContainer = document.getElementById('resultsContainer');
+        const singleResults = document.getElementById('singleResults');
+        const bulkResults = document.getElementById('bulkResults');
+        const bulkResultsBody = document.getElementById('bulkResultsBody');
         const emptyResults = document.getElementById('emptyResults');
         const resultsTime = document.getElementById('resultsTime');
+        const exportBtn = document.getElementById('exportBtn');
         
         // State variables
+        let currentMode = 'single';
         let startTime = null;
         let validUrls = [];
+        let bulkData = [];
+        let bulkResults = [];
         let totalUrls = 0;
         let testedUrls = 0;
+        let currentProspectIndex = 0;
         
         // Event Listeners
-        searchForm.addEventListener('submit', handleSearch);
+        singleTab.addEventListener('click', () => switchMode('single'));
+        bulkTab.addEventListener('click', () => switchMode('bulk'));
+        searchForm.addEventListener('submit', handleSingleSearch);
+        bulkSearchBtn.addEventListener('click', handleBulkSearch);
+        fileUploadArea.addEventListener('click', () => csvFile.click());
+        fileUploadArea.addEventListener('dragover', handleDragOver);
+        fileUploadArea.addEventListener('dragleave', handleDragLeave);
+        fileUploadArea.addEventListener('drop', handleDrop);
+        csvFile.addEventListener('change', handleFileSelect);
+        exportBtn.addEventListener('click', exportResults);
         
-        // Handle search form submission
-        function handleSearch(e) {
+        // Switch between single and bulk modes
+        function switchMode(mode) {
+            currentMode = mode;
+            
+            if (mode === 'single') {
+                singleTab.classList.add('active');
+                bulkTab.classList.remove('active');
+                singleForm.classList.remove('hidden');
+                bulkForm.classList.add('hidden');
+            } else {
+                bulkTab.classList.add('active');
+                singleTab.classList.remove('active');
+                singleForm.classList.add('hidden');
+                bulkForm.classList.remove('hidden');
+            }
+            
+            // Reset results
+            resultsSection.classList.add('hidden');
+            progressSection.classList.add('hidden');
+        }
+        
+        // Handle drag and drop
+        function handleDragOver(e) {
+            e.preventDefault();
+            fileUploadArea.classList.add('dragover');
+        }
+        
+        function handleDragLeave(e) {
+            e.preventDefault();
+            fileUploadArea.classList.remove('dragover');
+        }
+        
+        function handleDrop(e) {
+            e.preventDefault();
+            fileUploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+        
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+        
+        // Handle file upload
+        function handleFile(file) {
+            // Validate file
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                alert('Please upload a CSV file');
+                return;
+            }
+            
+            if (file.size > 10 * 1024 * 1024) { // 10MB
+                alert('File size must be less than 10MB');
+                return;
+            }
+            
+            // Parse CSV
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.errors.length > 0) {
+                        alert('Error parsing CSV: ' + results.errors[0].message);
+                        return;
+                    }
+                    
+                    // Validate required columns
+                    const headers = results.meta.fields.map(field => field.toLowerCase().trim());
+                    if (!headers.includes('firstname') || !headers.includes('lastname')) {
+                        alert('CSV must contain "firstname" and "lastname" columns');
+                        return;
+                    }
+                    
+                    // Process data
+                    bulkData = results.data.filter(row => {
+                        const firstName = (row.firstname || row.FirstName || row['First Name'] || '').trim();
+                        const lastName = (row.lastname || row.LastName || row['Last Name'] || '').trim();
+                        return firstName && lastName;
+                    }).map(row => ({
+                        firstName: (row.firstname || row.FirstName || row['First Name'] || '').trim(),
+                        lastName: (row.lastname || row.LastName || row['Last Name'] || '').trim(),
+                        company: (row.company || row.Company || row.companyname || row.CompanyName || row['Company Name'] || '').trim()
+                    }));
+                    
+                    if (bulkData.length === 0) {
+                        alert('No valid records found in CSV');
+                        return;
+                    }
+                    
+                    // Update UI
+                    uploadPrompt.classList.add('hidden');
+                    fileInfo.classList.remove('hidden');
+                    fileName.textContent = file.name;
+                    fileSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+                    recordCount.textContent = `${bulkData.length} prospects loaded`;
+                    
+                    // Enable search button
+                    bulkSearchBtn.disabled = false;
+                    bulkSearchBtn.classList.remove('bg-gray-400');
+                    bulkSearchBtn.classList.add('bg-primary', 'hover:bg-primary-dark');
+                    bulkBtnText.textContent = `Find Links for ${bulkData.length} Prospects`;
+                }
+            });
+        }
+        
+        // Handle single search
+        function handleSingleSearch(e) {
             e.preventDefault();
             
-            // Get form values
             const firstName = document.getElementById('firstName').value.trim();
             const lastName = document.getElementById('lastName').value.trim();
             const companyName = document.getElementById('companyName').value.trim();
             
-            // Validate required fields
             if (!firstName || !lastName) {
                 alert('First name and last name are required');
                 return;
             }
             
-            // Start search process
-            startSearch(firstName, lastName, companyName);
+            startSingleSearch(firstName, lastName, companyName);
         }
         
-        // Start the search process
-        function startSearch(firstName, lastName, companyName) {
+        // Handle bulk search
+        function handleBulkSearch() {
+            if (bulkData.length === 0) {
+                alert('Please upload a CSV file first');
+                return;
+            }
+            
+            startBulkSearch();
+        }
+        
+        // Start single search
+        function startSingleSearch(firstName, lastName, companyName) {
             // Reset state
             validUrls = [];
             testedUrls = 0;
@@ -224,9 +478,13 @@
             searchBtn.disabled = true;
             resultsSection.classList.add('hidden');
             progressSection.classList.remove('hidden');
-            resultsContainer.innerHTML = '';
+            bulkProgressDetails.classList.add('hidden');
+            singleResults.innerHTML = '';
+            bulkResults.classList.add('hidden');
+            singleResults.classList.remove('hidden');
+            exportBtn.classList.add('hidden');
             
-            // Generate URL patterns
+            // Generate and test URLs
             const urlPatterns = generateUrlPatterns(
                 firstName.toLowerCase(), 
                 lastName.toLowerCase(), 
@@ -236,23 +494,135 @@
             totalUrls = urlPatterns.length;
             startTime = new Date();
             
-            // Update progress
             updateProgress();
-            
-            // Validate URLs in batches with delay
-            validateUrlsInBatches(urlPatterns, 5, 500);
+            validateUrlsInBatches(urlPatterns, 5, 500, () => finishSingleSearch());
         }
         
-        // Generate URL patterns based on names and company
+        // Start bulk search
+        function startBulkSearch() {
+            // Reset state
+            bulkResults = [];
+            currentProspectIndex = 0;
+            testedUrls = 0;
+            totalUrls = 0;
+            
+            // Calculate total URLs
+            bulkData.forEach(prospect => {
+                const patterns = generateUrlPatterns(
+                    prospect.firstName.toLowerCase(),
+                    prospect.lastName.toLowerCase(),
+                    prospect.company.toLowerCase()
+                );
+                totalUrls += patterns.length;
+            });
+            
+            // UI updates
+            bulkBtnText.textContent = 'Searching...';
+            bulkSpinner.classList.remove('hidden');
+            bulkSearchBtn.disabled = true;
+            resultsSection.classList.add('hidden');
+            progressSection.classList.remove('hidden');
+            bulkProgressDetails.classList.remove('hidden');
+            bulkResults.classList.remove('hidden');
+            singleResults.classList.add('hidden');
+            bulkResultsBody.innerHTML = '';
+            exportBtn.classList.remove('hidden');
+            
+            startTime = new Date();
+            updateProgress();
+            
+            // Process prospects sequentially
+            processBulkProspects();
+        }
+        
+        // Process bulk prospects
+        async function processBulkProspects() {
+            for (let i = 0; i < bulkData.length; i++) {
+                currentProspectIndex = i;
+                const prospect = bulkData[i];
+                
+                // Update current prospect display
+                currentProspect.textContent = `Processing: ${prospect.firstName} ${prospect.lastName}`;
+                prospectProgress.textContent = `Prospect ${i + 1} of ${bulkData.length}`;
+                
+                // Generate URL patterns for this prospect
+                const urlPatterns = generateUrlPatterns(
+                    prospect.firstName.toLowerCase(),
+                    prospect.lastName.toLowerCase(),
+                    prospect.company.toLowerCase()
+                );
+                
+                // Find valid URLs for this prospect
+                const prospectValidUrls = [];
+                await validateUrlsInBatches(urlPatterns, 3, 300, null, prospectValidUrls);
+                
+                // Store results
+                bulkResults.push({
+                    ...prospect,
+                    validUrls: prospectValidUrls,
+                    status: prospectValidUrls.length > 0 ? 'found' : 'none'
+                });
+                
+                // Update bulk results table
+                updateBulkResultsTable();
+                
+                // Small delay between prospects
+                if (i < bulkData.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+            
+            finishBulkSearch();
+        }
+        
+        // Update bulk results table
+        function updateBulkResultsTable() {
+            bulkResultsBody.innerHTML = '';
+            
+            bulkResults.forEach(result => {
+                const row = document.createElement('tr');
+                row.className = 'border-t hover:bg-gray-50';
+                
+                const linksHtml = result.validUrls.length > 0 
+                    ? result.validUrls.map(item => `
+                        <div class="mb-1">
+                            <a href="${item.url}" target="_blank" class="text-primary text-sm hover:underline">${item.url}</a>
+                            <button class="ml-2 text-xs text-gray-500 hover:text-gray-700" onclick="copyToClipboard('${item.url}')">
+                                <i class="far fa-copy"></i>
+                            </button>
+                        </div>
+                    `).join('')
+                    : '<span class="text-gray-400 text-sm">No links found</span>';
+                
+                const statusIcon = result.status === 'found' 
+                    ? '<i class="fas fa-check-circle text-green-500"></i>'
+                    : '<i class="fas fa-times-circle text-red-500"></i>';
+                
+                row.innerHTML = `
+                    <td class="py-3 px-4">
+                        <div class="font-medium text-gray-900">${result.firstName} ${result.lastName}</div>
+                    </td>
+                    <td class="py-3 px-4 text-gray-600">${result.company || '-'}</td>
+                    <td class="py-3 px-4 max-w-md">
+                        <div class="max-h-24 overflow-y-auto">
+                            ${linksHtml}
+                        </div>
+                    </td>
+                    <td class="py-3 px-4 text-center">${statusIcon}</td>
+                `;
+                
+                bulkResultsBody.appendChild(row);
+            });
+        }
+        
+        // Generate URL patterns
         function generateUrlPatterns(firstName, lastName, companyName) {
             const patterns = [];
             
-            // Clean names and company
             const cleanFirstName = firstName.replace(/[^a-z0-9]/g, '');
             const cleanLastName = lastName.replace(/[^a-z0-9]/g, '');
             const cleanCompanyName = companyName.replace(/[^a-z0-9]/g, '');
             
-            // Name variations
             const namePatterns = [
                 `${cleanFirstName}`,
                 `${cleanLastName}`,
@@ -274,7 +644,6 @@
                 `${cleanFirstName}_${cleanLastName.charAt(0)}`
             ];
             
-            // Add name patterns to URLs
             namePatterns.forEach(pattern => {
                 patterns.push({
                     url: `https://calendly.com/${pattern}`,
@@ -282,15 +651,12 @@
                 });
             });
             
-            // Company variations (if company provided)
             if (companyName) {
-                // Company-only patterns
                 patterns.push({
                     url: `https://calendly.com/${cleanCompanyName}`,
                     pattern: cleanCompanyName
                 });
                 
-                // Name and company combinations
                 namePatterns.forEach(pattern => {
                     const combinedPatterns = [
                         `${pattern}-${cleanCompanyName}`,
@@ -313,43 +679,36 @@
             return patterns;
         }
         
-        // Validate URLs in batches with delay
-        async function validateUrlsInBatches(urlPatterns, batchSize, delay) {
+        // Validate URLs in batches
+        async function validateUrlsInBatches(urlPatterns, batchSize, delay, callback, validUrlsArray = null) {
+            const targetArray = validUrlsArray || validUrls;
+            
             for (let i = 0; i < urlPatterns.length; i += batchSize) {
                 const batch = urlPatterns.slice(i, i + batchSize);
                 
-                // Process batch in parallel
-                await validateUrlBatch(batch);
+                const promises = batch.map(item => validateUrl(item.url, item.pattern));
+                const results = await Promise.all(promises);
                 
-                // Add delay between batches
+                results.forEach((isValid, index) => {
+                    if (isValid) {
+                        targetArray.push({
+                            url: batch[index].url,
+                            pattern: batch[index].pattern
+                        });
+                    }
+                    testedUrls++;
+                    updateProgress();
+                });
+                
                 if (i + batchSize < urlPatterns.length) {
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
             
-            // Search complete
-            finishSearch();
+            if (callback) callback();
         }
         
-        // Validate a batch of URLs
-        async function validateUrlBatch(batch) {
-            const promises = batch.map(item => validateUrl(item.url, item.pattern));
-            const results = await Promise.all(promises);
-            
-            // Process results
-            results.forEach((isValid, index) => {
-                if (isValid) {
-                    validUrls.push({
-                        url: batch[index].url,
-                        pattern: batch[index].pattern
-                    });
-                }
-                testedUrls++;
-                updateProgress();
-            });
-        }
-        
-        // Update progress UI
+        // Update progress
         function updateProgress() {
             const percent = Math.round((testedUrls / totalUrls) * 100);
             progressBar.style.width = `${percent}%`;
@@ -359,36 +718,54 @@
                 : `Testing URLs...`;
         }
         
-        // Finish search and display results
-        function finishSearch() {
-            // Calculate time taken
+        // Finish single search
+        function finishSingleSearch() {
             const endTime = new Date();
             const timeTaken = (endTime - startTime) / 1000;
             resultsTime.textContent = `Found ${validUrls.length} links in ${timeTaken.toFixed(1)} seconds`;
             
-            // Hide progress, show results
             progressSection.classList.add('hidden');
             resultsSection.classList.remove('hidden');
             
-            // Reset button state
             btnText.textContent = 'Find Calendly Links';
             spinner.classList.add('hidden');
             searchBtn.disabled = false;
             
-            // Display results
-            displayResults();
+            displaySingleResults();
         }
         
-        // Display results in UI
-        function displayResults() {
+        // Finish bulk search
+        function finishBulkSearch() {
+            const endTime = new Date();
+            const timeTaken = (endTime - startTime) / 1000;
+            const totalFound = bulkResults.reduce((sum, result) => sum + result.validUrls.length, 0);
+            resultsTime.textContent = `Found ${totalFound} links across ${bulkResults.length} prospects in ${timeTaken.toFixed(1)} seconds`;
+            
+            progressSection.classList.add('hidden');
+            resultsSection.classList.remove('hidden');
+            
+            bulkBtnText.textContent = `Find Links for ${bulkData.length} Prospects`;
+            bulkSpinner.classList.add('hidden');
+            bulkSearchBtn.disabled = false;
+            
+            if (totalFound === 0) {
+                emptyResults.classList.remove('hidden');
+                bulkResults.classList.add('hidden');
+            } else {
+                emptyResults.classList.add('hidden');
+            }
+        }
+        
+        // Display single search results
+        function displaySingleResults() {
             if (validUrls.length === 0) {
                 emptyResults.classList.remove('hidden');
-                resultsContainer.innerHTML = '';
+                singleResults.innerHTML = '';
                 return;
             }
             
             emptyResults.classList.add('hidden');
-            resultsContainer.innerHTML = '';
+            singleResults.innerHTML = '';
             
             validUrls.forEach(item => {
                 const resultElement = document.createElement('div');
@@ -413,7 +790,7 @@
                     </button>
                 `;
                 
-                resultsContainer.appendChild(resultElement);
+                singleResults.appendChild(resultElement);
             });
             
             // Add copy button functionality
@@ -422,7 +799,6 @@
                     const url = button.getAttribute('data-url');
                     copyToClipboard(url);
                     
-                    // Show feedback
                     const originalText = button.innerHTML;
                     button.innerHTML = '<i class="fas fa-check mr-2"></i> Copied!';
                     button.disabled = true;
@@ -435,7 +811,35 @@
             });
         }
         
-        // Copy URL to clipboard
+        // Export results to CSV
+        function exportResults() {
+            if (bulkResults.length === 0) return;
+            
+            const csvData = bulkResults.map(result => ({
+                'First Name': result.firstName,
+                'Last Name': result.lastName,
+                'Company': result.company || '',
+                'Found Links': result.validUrls.map(item => item.url).join('; '),
+                'Link Count': result.validUrls.length,
+                'Status': result.status === 'found' ? 'Links Found' : 'No Links Found'
+            }));
+            
+            const csv = Papa.unparse(csvData);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `calendly_results_${new Date().toISOString().split('T')[0]}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+        
+        // Copy to clipboard
         function copyToClipboard(text) {
             const textarea = document.createElement('textarea');
             textarea.value = text;
@@ -445,7 +849,7 @@
             document.body.removeChild(textarea);
         }
         
-        // Validate a Calendly URL
+        // Validate Calendly URL
         async function validateUrl(url, pattern) {
             const proxies = [
                 `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -453,7 +857,6 @@
                 `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
             ];
             
-            // Try each proxy until one works
             for (const proxyUrl of proxies) {
                 try {
                     const response = await Promise.race([
@@ -472,7 +875,6 @@
                     const html = await response.text();
                     const htmlLower = html.toLowerCase();
                     
-                    // Check for invalid indicators
                     const invalidIndicators = [
                         'this calendly link is not available',
                         'page not found',
@@ -492,7 +894,6 @@
                         }
                     }
                     
-                    // Check for valid indicators
                     const validIndicators = [
                         'calendly-inline-widget',
                         'scheduling',
@@ -507,16 +908,13 @@
                         }
                     }
                     
-                    // If no valid indicators found
                     return false;
                     
                 } catch (error) {
                     console.warn(`Proxy failed for ${url}:`, error);
-                    // Try next proxy
                 }
             }
             
-            // All proxies failed
             return false;
         }
     </script>
