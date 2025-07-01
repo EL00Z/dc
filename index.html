@@ -143,15 +143,25 @@
                 </div>
                 <p class="text-gray-600 mb-4">Upload a CSV file with columns: `firstName`, `lastName`, and an optional `companyName`. Max file size: 10MB.</p>
                 <form id="bulkSearchForm">
-                    <div class="flex items-center border border-gray-300 rounded-lg p-2">
+                    <div class="flex items-center border border-gray-300 rounded-lg p-2 mb-4">
                          <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primary hover:file:bg-blue-100">
                     </div>
-                    <button id="bulkSearchBtn" type="submit" class="mt-4 w-full bg-secondary hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-lg transition flex items-center justify-center">
-                        <span id="bulkBtnText">Process Bulk Upload</span>
-                        <span id="bulkSpinner" class="ml-2 hidden">
-                            <i class="fas fa-spinner spin"></i>
-                        </span>
-                    </button>
+                    <div id="bulkActionContainer">
+                        <button id="bulkSearchBtn" type="submit" class="w-full bg-secondary hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-lg transition flex items-center justify-center">
+                            <span id="bulkBtnText">Process Bulk Upload</span>
+                            <span id="bulkSpinner" class="ml-2 hidden">
+                                <i class="fas fa-spinner spin"></i>
+                            </span>
+                        </button>
+                        <div id="bulkControls" class="hidden mt-4 flex justify-center gap-4">
+                            <button type="button" id="pauseResumeBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-5 rounded-lg transition flex items-center">
+                                <i class="fas fa-pause mr-2"></i>Pause
+                            </button>
+                            <button type="button" id="stopBtn" class="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-5 rounded-lg transition flex items-center">
+                                <i class="fas fa-stop mr-2"></i>Stop
+                            </button>
+                        </div>
+                    </div>
                 </form>
             </div>
         </div>
@@ -160,7 +170,12 @@
              <div class="card bg-white">
                  <div class="p-6 border-b flex justify-between items-center">
                      <h3 class="text-lg font-semibold text-gray-900">Bulk Search Results</h3>
-                     <span id="bulkResultsTime" class="text-sm text-gray-500"></span>
+                     <div>
+                        <span id="bulkResultsTime" class="text-sm text-gray-500 mr-4 align-middle"></span>
+                        <button id="downloadCsvBtn" class="hidden bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition text-sm">
+                            <i class="fas fa-download mr-2"></i>Download CSV
+                        </button>
+                    </div>
                  </div>
                  <div class="p-6">
                     <div class="overflow-x-auto">
@@ -225,27 +240,61 @@
         const emptyResults = document.getElementById('emptyResults');
         const resultsTime = document.getElementById('resultsTime');
 
-        // NEW DOM Elements for Bulk Upload
+        // Bulk Upload DOM Elements
         const bulkSearchForm = document.getElementById('bulkSearchForm');
         const csvFile = document.getElementById('csvFile');
         const bulkSearchBtn = document.getElementById('bulkSearchBtn');
         const bulkBtnText = document.getElementById('bulkBtnText');
         const bulkSpinner = document.getElementById('bulkSpinner');
+        const bulkControls = document.getElementById('bulkControls');
+        const pauseResumeBtn = document.getElementById('pauseResumeBtn');
+        const stopBtn = document.getElementById('stopBtn');
         const bulkResultsSection = document.getElementById('bulkResultsSection');
         const bulkResultsTableBody = document.getElementById('bulkResultsTableBody');
         const bulkResultsTime = document.getElementById('bulkResultsTime');
+        const downloadCsvBtn = document.getElementById('downloadCsvBtn');
         
         // State variables
         let startTime = null;
         let validUrls = [];
         let totalUrls = 0;
         let testedUrls = 0;
+        let bulkResultsData = [];
+        let isPaused = false;
+        let isStopped = false;
+        let resumeSignal = null;
         
         // Event Listeners
         searchForm.addEventListener('submit', handleSearch);
         bulkSearchForm.addEventListener('submit', handleBulkSearch);
+        downloadCsvBtn.addEventListener('click', exportResultsToCSV);
+        pauseResumeBtn.addEventListener('click', handlePauseResume);
+        stopBtn.addEventListener('click', handleStop);
+
+        function handlePauseResume() {
+            isPaused = !isPaused;
+            if (isPaused) {
+                pauseResumeBtn.innerHTML = `<i class="fas fa-play mr-2"></i>Resume`;
+            } else {
+                pauseResumeBtn.innerHTML = `<i class="fas fa-pause mr-2"></i>Pause`;
+                if (resumeSignal) {
+                    resumeSignal();
+                    resumeSignal = null;
+                }
+            }
+        }
+
+        function handleStop() {
+            isStopped = true;
+            if (isPaused) {
+                isPaused = false; // To un-stick from the pause promise
+                if (resumeSignal) {
+                    resumeSignal();
+                    resumeSignal = null;
+                }
+            }
+        }
         
-        // Handle single search form submission
         function handleSearch(e) {
             e.preventDefault();
             const firstName = document.getElementById('firstName').value.trim();
@@ -258,7 +307,6 @@
             startSearch(firstName, lastName, companyName);
         }
 
-        // Handle bulk CSV search form submission
         function handleBulkSearch(e) {
             e.preventDefault();
             const file = csvFile.files[0];
@@ -284,7 +332,7 @@
                     processBulkProspects(prospects);
                 } catch (error) {
                     alert('Error parsing CSV file: ' + error.message);
-                    csvFile.value = ''; // Reset file input
+                    csvFile.value = '';
                 }
             };
             reader.readAsText(file);
@@ -318,57 +366,98 @@
 
         async function processBulkProspects(prospects) {
             startTime = new Date();
-            // UI updates
-            bulkBtnText.textContent = `Processing... (0/${prospects.length})`;
-            bulkSpinner.classList.remove('hidden');
-            bulkSearchBtn.disabled = true;
+            bulkResultsData = [];
+            isPaused = false;
+            isStopped = false;
+            
+            // UI setup for running state
+            downloadCsvBtn.classList.add('hidden');
+            bulkSearchBtn.style.display = 'none';
+            bulkControls.style.display = 'flex';
+            pauseResumeBtn.innerHTML = `<i class="fas fa-pause mr-2"></i>Pause`;
             searchBtn.disabled = true;
+            csvFile.disabled = true;
             resultsSection.classList.add('hidden');
             bulkResultsSection.classList.remove('hidden');
             bulkResultsTableBody.innerHTML = '';
             
             let processedCount = 0;
+            let currentIndex = 0;
 
-            for (const prospect of prospects) {
+            while(currentIndex < prospects.length && !isStopped) {
+                if (isPaused) {
+                    const pausedText = `Paused... (${processedCount}/${prospects.length})`;
+                    bulkResultsTime.textContent = pausedText;
+                    await new Promise(resolve => { resumeSignal = resolve; });
+                }
+                if (isStopped) break;
+
+                const statusText = `Processing... (${processedCount + 1}/${prospects.length})`;
+                bulkResultsTime.textContent = statusText;
+
+                const prospect = prospects[currentIndex];
                 const urlPatterns = generateUrlPatterns(prospect.firstName.toLowerCase(), prospect.lastName.toLowerCase(), prospect.companyName ? prospect.companyName.toLowerCase() : '');
                 let foundLinks = [];
 
-                // Process patterns in batches to find all possible links
-                for (let i = 0; i < urlPatterns.length; i += 5) {
+                for (let i = 0; i < urlPatterns.length && !isStopped; i += 5) {
+                    if (isPaused) { // Check again in inner loop
+                        await new Promise(resolve => { resumeSignal = resolve; });
+                    }
+                    if (isStopped) break;
+
                     const batch = urlPatterns.slice(i, i + 5);
                     const promises = batch.map(item => validateUrl(item.url, item.pattern).then(isValid => ({ url: item.url, isValid })));
-                    
                     const results = await Promise.all(promises);
                     const validResultsInBatch = results.filter(r => r.isValid);
 
                     if (validResultsInBatch.length > 0) {
                         validResultsInBatch.forEach(validResult => foundLinks.push(validResult.url));
                     }
-                    
                     if (i + 5 < urlPatterns.length) {
                         await new Promise(resolve => setTimeout(resolve, 500));
                     }
                 }
+                
+                if (isStopped) break;
+
+                const result = { ...prospect, foundLinks };
+                bulkResultsData.push(result);
+                displayBulkResultRow(result);
 
                 processedCount++;
-                bulkBtnText.textContent = `Processing... (${processedCount}/${prospects.length})`;
-                displayBulkResultRow({ ...prospect, foundLinks });
+                currentIndex++;
+
+                if (processedCount === 1) {
+                    downloadCsvBtn.classList.remove('hidden');
+                }
             }
 
             // Finalize UI
+            resetBulkSearchUI(isStopped, processedCount, prospects.length);
+        }
+
+        function resetBulkSearchUI(wasStopped, processed, total) {
             const endTime = new Date();
             const timeTaken = (endTime - startTime) / 1000;
-            bulkResultsTime.textContent = `Processed ${prospects.length} prospects in ${timeTaken.toFixed(1)}s`;
+            if (wasStopped) {
+                bulkResultsTime.textContent = `Search stopped after ${processed} of ${total} prospects. (${timeTaken.toFixed(1)}s)`;
+            } else {
+                bulkResultsTime.textContent = `Search complete. Processed ${processed} prospects in ${timeTaken.toFixed(1)}s.`;
+            }
+
+            bulkSearchBtn.style.display = 'flex';
+            bulkControls.style.display = 'none';
             bulkBtnText.textContent = 'Process Bulk Upload';
-            bulkSpinner.classList.add('hidden');
-            bulkSearchBtn.disabled = false;
+            
             searchBtn.disabled = false;
-            csvFile.value = ''; // Reset file input
+            csvFile.disabled = false;
+            csvFile.value = '';
+            isPaused = false;
+            isStopped = false;
         }
 
         function displayBulkResultRow(result) {
             const row = document.createElement('tr');
-            
             let linksHtml = '';
             if (result.foundLinks.length > 0) {
                 linksHtml = result.foundLinks.map(link => 
@@ -377,41 +466,48 @@
             } else {
                 linksHtml = `<span class="text-gray-400">Not Found</span>`;
             }
-
-            row.innerHTML = `
-                <td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.firstName}</td>
-                <td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.lastName}</td>
-                <td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-500">${result.companyName || 'N/A'}</td>
-                <td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${linksHtml}</td>
-            `;
+            row.innerHTML = `<td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.firstName}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.lastName}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-500">${result.companyName || 'N/A'}</td><td class="px-6 py-4 align-top text-sm text-gray-800">${linksHtml}</td>`;
             bulkResultsTableBody.appendChild(row);
         }
+
+        function exportResultsToCSV() {
+            if (bulkResultsData.length === 0) {
+                alert("No results to export.");
+                return;
+            }
+            const headers = ["First Name", "Last Name", "Company", "Found Links"];
+            const formatCell = (cellData) => {
+                const text = String(cellData);
+                if (/[",\n]/.test(text)) {
+                    const withEscapedQuotes = text.replace(/"/g, '""');
+                    return `"${withEscapedQuotes}"`;
+                }
+                return text;
+            };
+            const rows = bulkResultsData.map(prospect => [prospect.firstName, prospect.lastName, prospect.companyName || '', prospect.foundLinks.join('\n')].map(formatCell).join(','));
+            const csvContent = [headers.map(formatCell).join(','), ...rows].join('\r\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "calendly_links_export.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
         
-        // Start the single search process
+        // --- Single Search Functions (Unchanged) ---
         function startSearch(firstName, lastName, companyName) {
-            validUrls = [];
-            testedUrls = 0;
-            totalUrls = 0;
-            
-            btnText.textContent = 'Searching...';
-            spinner.classList.remove('hidden');
-            searchBtn.disabled = true;
-            bulkSearchBtn.disabled = true;
-            resultsSection.classList.add('hidden');
-            bulkResultsSection.classList.add('hidden');
-            progressSection.classList.remove('hidden');
-            resultsContainer.innerHTML = '';
-            
-            const urlPatterns = generateUrlPatterns(
-                firstName.toLowerCase(), 
-                lastName.toLowerCase(), 
-                companyName.toLowerCase()
-            );
-            
-            totalUrls = urlPatterns.length;
-            startTime = new Date();
-            updateProgress();
-            validateUrlsInBatches(urlPatterns, 5, 500);
+            validUrls = []; testedUrls = 0; totalUrls = 0;
+            btnText.textContent = 'Searching...'; spinner.classList.remove('hidden');
+            searchBtn.disabled = true; bulkSearchBtn.disabled = true;
+            resultsSection.classList.add('hidden'); bulkResultsSection.classList.add('hidden');
+            progressSection.classList.remove('hidden'); resultsContainer.innerHTML = '';
+            const urlPatterns = generateUrlPatterns(firstName.toLowerCase(), lastName.toLowerCase(), companyName.toLowerCase());
+            totalUrls = urlPatterns.length; startTime = new Date();
+            updateProgress(); validateUrlsInBatches(urlPatterns, 5, 500);
         }
         
         function generateUrlPatterns(firstName, lastName, companyName) {
@@ -419,32 +515,13 @@
             const cleanFirstName = firstName.replace(/[^a-z0-9]/g, '');
             const cleanLastName = lastName.replace(/[^a-z0-9]/g, '');
             const cleanCompanyName = companyName.replace(/[^a-z0-9]/g, '');
-            
-            const namePatterns = [
-                `${cleanFirstName}`, `${cleanLastName}`, `${cleanFirstName}${cleanLastName}`, `${cleanLastName}${cleanFirstName}`,
-                `${cleanFirstName}.${cleanLastName}`, `${cleanLastName}.${cleanFirstName}`, `${cleanFirstName}-${cleanLastName}`,
-                `${cleanLastName}-${cleanFirstName}`, `${cleanFirstName}_${cleanLastName}`, `${cleanLastName}_${cleanFirstName}`,
-                `${cleanFirstName.charAt(0)}${cleanLastName}`, `${cleanFirstName}${cleanLastName.charAt(0)}`,
-                `${cleanFirstName.charAt(0)}.${cleanLastName}`, `${cleanFirstName.charAt(0)}-${cleanLastName}`,
-                `${cleanFirstName.charAt(0)}_${cleanLastName}`, `${cleanFirstName}-${cleanLastName.charAt(0)}`,
-                `${cleanFirstName}.${cleanLastName.charAt(0)}`, `${cleanFirstName}_${cleanLastName.charAt(0)}`
-            ];
-            
-            namePatterns.forEach(pattern => {
-                patterns.push({ url: `https://calendly.com/${pattern}`, pattern: pattern });
-            });
-            
+            const namePatterns = [`${cleanFirstName}`, `${cleanLastName}`, `${cleanFirstName}${cleanLastName}`, `${cleanLastName}${cleanFirstName}`, `${cleanFirstName}.${cleanLastName}`, `${cleanLastName}.${cleanFirstName}`, `${cleanFirstName}-${cleanLastName}`, `${cleanLastName}-${cleanFirstName}`, `${cleanFirstName}_${cleanLastName}`, `${cleanLastName}_${cleanFirstName}`, `${cleanFirstName.charAt(0)}${cleanLastName}`, `${cleanFirstName}${cleanLastName.charAt(0)}`, `${cleanFirstName.charAt(0)}.${cleanLastName}`, `${cleanFirstName.charAt(0)}-${cleanLastName}`, `${cleanFirstName.charAt(0)}_${cleanLastName}`, `${cleanFirstName}-${cleanLastName.charAt(0)}`, `${cleanFirstName}.${cleanLastName.charAt(0)}`, `${cleanFirstName}_${cleanLastName.charAt(0)}`];
+            namePatterns.forEach(pattern => { patterns.push({ url: `https://calendly.com/${pattern}`, pattern: pattern }); });
             if (companyName) {
                 patterns.push({ url: `https://calendly.com/${cleanCompanyName}`, pattern: cleanCompanyName });
                 namePatterns.forEach(pattern => {
-                    const combinedPatterns = [
-                        `${pattern}-${cleanCompanyName}`, `${cleanCompanyName}-${pattern}`,
-                        `${pattern}.${cleanCompanyName}`, `${cleanCompanyName}.${pattern}`,
-                        `${pattern}_${cleanCompanyName}`, `${cleanCompanyName}_${pattern}`
-                    ];
-                    combinedPatterns.forEach(combined => {
-                        patterns.push({ url: `https://calendly.com/${combined}`, pattern: combined });
-                    });
+                    const combinedPatterns = [`${pattern}-${cleanCompanyName}`, `${cleanCompanyName}-${pattern}`, `${pattern}.${cleanCompanyName}`, `${cleanCompanyName}.${pattern}`, `${pattern}_${cleanCompanyName}`, `${cleanCompanyName}_${pattern}`];
+                    combinedPatterns.forEach(combined => { patterns.push({ url: `https://calendly.com/${combined}`, pattern: combined }); });
                 });
             }
             return patterns;
@@ -454,10 +531,7 @@
             for (let i = 0; i < urlPatterns.length; i += batchSize) {
                 const batch = urlPatterns.slice(i, i + batchSize);
                 await validateUrlBatch(batch);
-                
-                if (i + batchSize < urlPatterns.length) {
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
+                if (i + batchSize < urlPatterns.length) { await new Promise(resolve => setTimeout(resolve, delay)); }
             }
             finishSearch();
         }
@@ -465,17 +539,7 @@
         async function validateUrlBatch(batch) {
             const promises = batch.map(item => validateUrl(item.url, item.pattern));
             const results = await Promise.all(promises);
-            
-            results.forEach((isValid, index) => {
-                if (isValid) {
-                    validUrls.push({
-                        url: batch[index].url,
-                        pattern: batch[index].pattern
-                    });
-                }
-                testedUrls++;
-                updateProgress();
-            });
+            results.forEach((isValid, index) => { if (isValid) { validUrls.push({ url: batch[index].url, pattern: batch[index].pattern }); } testedUrls++; updateProgress(); });
         }
         
         function updateProgress() {
@@ -486,70 +550,30 @@
         }
         
         function finishSearch() {
-            const endTime = new Date();
-            const timeTaken = (endTime - startTime) / 1000;
+            const endTime = new Date(); const timeTaken = (endTime - startTime) / 1000;
             resultsTime.textContent = `Found ${validUrls.length} links in ${timeTaken.toFixed(1)} seconds`;
-            
-            progressSection.classList.add('hidden');
-            resultsSection.classList.remove('hidden');
-            
-            btnText.textContent = 'Find Calendly Links';
-            spinner.classList.add('hidden');
-            searchBtn.disabled = false;
-            bulkSearchBtn.disabled = false;
-            
+            progressSection.classList.add('hidden'); resultsSection.classList.remove('hidden');
+            btnText.textContent = 'Find Calendly Links'; spinner.classList.add('hidden');
+            searchBtn.disabled = false; bulkSearchBtn.disabled = false;
             displayResults();
         }
         
         function displayResults() {
-            if (validUrls.length === 0) {
-                emptyResults.classList.remove('hidden');
-                resultsContainer.innerHTML = '';
-                return;
-            }
-            
-            emptyResults.classList.add('hidden');
-            resultsContainer.innerHTML = '';
-            
+            if (validUrls.length === 0) { emptyResults.classList.remove('hidden'); resultsContainer.innerHTML = ''; return; }
+            emptyResults.classList.add('hidden'); resultsContainer.innerHTML = '';
             validUrls.forEach(item => {
                 const resultElement = document.createElement('div');
                 resultElement.className = 'link-item bg-white border rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between';
-                
-                resultElement.innerHTML = `
-                    <div class="mb-3 sm:mb-0 sm:mr-4">
-                        <div class="flex items-center">
-                            <div class="bg-green-100 w-10 h-10 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
-                                <i class="fas fa-calendar-check text-green-600"></i>
-                            </div>
-                            <div>
-                                <a href="${item.url}" target="_blank" class="text-primary font-medium hover:underline">${item.url}</a>
-                                <div class="flex flex-wrap gap-1 mt-1">
-                                    <span class="pattern-tag px-2 py-0.5 rounded">${item.pattern}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <button class="btn-copy bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium transition flex items-center" data-url="${item.url}">
-                        <i class="far fa-copy mr-2"></i> Copy
-                    </button>
-                `;
-                
+                resultElement.innerHTML = `<div class="mb-3 sm:mb-0 sm:mr-4"><div class="flex items-center"><div class="bg-green-100 w-10 h-10 rounded-full flex items-center justify-center mr-3 flex-shrink-0"><i class="fas fa-calendar-check text-green-600"></i></div><div><a href="${item.url}" target="_blank" class="text-primary font-medium hover:underline">${item.url}</a><div class="flex flex-wrap gap-1 mt-1"><span class="pattern-tag px-2 py-0.5 rounded">${item.pattern}</span></div></div></div></div><button class="btn-copy bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg text-sm font-medium transition flex items-center" data-url="${item.url}"><i class="far fa-copy mr-2"></i> Copy</button>`;
                 resultsContainer.appendChild(resultElement);
             });
-            
             document.querySelectorAll('.btn-copy').forEach(button => {
                 button.addEventListener('click', () => {
                     const url = button.getAttribute('data-url');
                     copyToClipboard(url);
-                    
                     const originalText = button.innerHTML;
-                    button.innerHTML = '<i class="fas fa-check mr-2"></i> Copied!';
-                    button.disabled = true;
-                    
-                    setTimeout(() => {
-                        button.innerHTML = originalText;
-                        button.disabled = false;
-                    }, 2000);
+                    button.innerHTML = '<i class="fas fa-check mr-2"></i> Copied!'; button.disabled = true;
+                    setTimeout(() => { button.innerHTML = originalText; button.disabled = false; }, 2000);
                 });
             });
         }
@@ -558,51 +582,24 @@
             navigator.clipboard.writeText(text).catch(err => {
                 console.warn('Clipboard copy failed, falling back to execCommand.');
                 const textarea = document.createElement('textarea');
-                textarea.value = text;
-                document.body.appendChild(textarea);
-                textarea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textarea);
+                textarea.value = text; document.body.appendChild(textarea);
+                textarea.select(); document.execCommand('copy'); document.body.removeChild(textarea);
             });
         }
         
         async function validateUrl(url, pattern) {
-            const proxies = [
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-                `https://corsproxy.io/?${encodeURIComponent(url)}`,
-                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-            ];
-            
+            const proxies = [`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`, `https://corsproxy.io/?${encodeURIComponent(url)}`, `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`];
             for (const proxyUrl of proxies) {
                 try {
-                    const response = await Promise.race([
-                        fetch(proxyUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-                    ]);
-                    
+                    const response = await Promise.race([fetch(proxyUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }), new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))]);
                     if (!response.ok) continue;
-                    
-                    const html = await response.text();
-                    const htmlLower = html.toLowerCase();
-                    
-                    const invalidIndicators = [
-                        'this calendly link is not available', 'page not found', '404', 'not found',
-                        'does not exist', 'invalid link', 'this link is no longer available',
-                        '<title>calendly - page not found</title>', 'calendly-404', 'error-page'
-                    ];
-                    if (invalidIndicators.some(indicator => htmlLower.includes(indicator))) {
-                        return false;
-                    }
-                    
+                    const html = await response.text(); const htmlLower = html.toLowerCase();
+                    const invalidIndicators = ['this calendly link is not available', 'page not found', '404', 'not found', 'does not exist', 'invalid link', 'this link is no longer available', '<title>calendly - page not found</title>', 'calendly-404', 'error-page'];
+                    if (invalidIndicators.some(indicator => htmlLower.includes(indicator))) { return false; }
                     const validIndicators = ['calendly-inline-widget', 'scheduling', 'book a time', 'select a date', 'available times'];
-                    if (validIndicators.some(indicator => htmlLower.includes(indicator))) {
-                        return true;
-                    }
-                    
+                    if (validIndicators.some(indicator => htmlLower.includes(indicator))) { return true; }
                     return false;
-                } catch (error) {
-                    console.warn(`Proxy failed for ${url}:`, error.message);
-                }
+                } catch (error) { console.warn(`Proxy failed for ${url}:`, error.message); }
             }
             return false;
         }
