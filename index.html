@@ -89,8 +89,8 @@
                             <input type="text" id="firstName" placeholder="John" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition">
                         </div>
                         <div>
-                            <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last Name<span class="text-red-500">*</span></label>
-                            <input type="text" id="lastName" placeholder="Doe" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition">
+                            <label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last Name <span class="text-gray-500">(optional)</span></label>
+                            <input type="text" id="lastName" placeholder="Doe" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition">
                         </div>
                     </div>
                     <div class="mb-8">
@@ -141,7 +141,7 @@
                      <h3 class="text-lg font-semibold text-gray-900 mr-3">Bulk Upload a CSV</h3>
                      <span class="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-full">NEW</span>
                 </div>
-                <p class="text-gray-600 mb-4">Upload a CSV file with columns: `firstName`, `lastName`, and an optional `companyName`. Max file size: 10MB.</p>
+                <p class="text-gray-600 mb-4">Upload a CSV file with columns: `firstName` (required), and optional `lastName`, `companyName`. Max file size: 10MB.</p>
                 <form id="bulkSearchForm">
                     <div class="flex items-center border border-gray-300 rounded-lg p-2 mb-4">
                          <input type="file" id="csvFile" accept=".csv" class="w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-primary hover:file:bg-blue-100">
@@ -203,15 +203,15 @@
             <ul class="space-y-2 text-gray-600">
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
-                    <span>Enter first and last name (company is optional) for a single search.</span>
+                    <span>Enter a first name to start a search.</span>
                 </li>
                  <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
-                    <span>Or, upload a CSV with `firstName`, `lastName`, and optional `companyName` for bulk searching.</span>
+                    <span>Or, upload a CSV with `firstName` (required), and optional `lastName` and `companyName`.</span>
                 </li>
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
-                    <span>We generate and test 50+ possible URL patterns for each prospect.</span>
+                    <span>We generate and test possible URL patterns for each prospect.</span>
                 </li>
                 <li class="flex items-start">
                     <i class="fas fa-check-circle text-green-500 mt-1 mr-2"></i>
@@ -287,7 +287,7 @@
         function handleStop() {
             isStopped = true;
             if (isPaused) {
-                isPaused = false; // To un-stick from the pause promise
+                isPaused = false;
                 if (resumeSignal) {
                     resumeSignal();
                     resumeSignal = null;
@@ -300,8 +300,8 @@
             const firstName = document.getElementById('firstName').value.trim();
             const lastName = document.getElementById('lastName').value.trim();
             const companyName = document.getElementById('companyName').value.trim();
-            if (!firstName || !lastName) {
-                alert('First name and last name are required');
+            if (!firstName) {
+                alert('First name is a required field');
                 return;
             }
             startSearch(firstName, lastName, companyName);
@@ -310,23 +310,21 @@
         function handleBulkSearch(e) {
             e.preventDefault();
             const file = csvFile.files[0];
-
             if (!file) {
                 alert('Please select a CSV file to upload.');
                 return;
             }
-            if (file.size > 10 * 1024 * 1024) { // 10MB limit
+            if (file.size > 10 * 1024 * 1024) {
                 alert('File is too large. Please upload a file smaller than 10MB.');
                 return;
             }
-
             const reader = new FileReader();
             reader.onload = function(event) {
                 const csvText = event.target.result;
                 try {
                     const prospects = parseCSV(csvText);
                     if (prospects.length === 0) {
-                        alert('CSV file is empty or headers are incorrect. Please ensure you have `firstName` and `lastName` columns.');
+                        alert('CSV file is empty or headers are incorrect. Please ensure you have a `firstName` column.');
                         return;
                     }
                     processBulkProspects(prospects);
@@ -347,17 +345,17 @@
             const lastNameIndex = header.indexOf('lastname');
             const companyNameIndex = header.indexOf('companyname');
 
-            if (firstNameIndex === -1 || lastNameIndex === -1) {
-                throw new Error('CSV must include `firstName` and `lastName` columns.');
+            if (firstNameIndex === -1) {
+                throw new Error('CSV must include a `firstName` column.');
             }
 
             const prospects = [];
             for (let i = 1; i < lines.length; i++) {
                 const data = lines[i].split(',');
                 const firstName = data[firstNameIndex] ? data[firstNameIndex].trim() : '';
-                const lastName = data[lastNameIndex] ? data[lastNameIndex].trim() : '';
+                const lastName = lastNameIndex !== -1 && data[lastNameIndex] ? data[lastNameIndex].trim() : '';
                 const companyName = companyNameIndex !== -1 && data[companyNameIndex] ? data[companyNameIndex].trim() : '';
-                if (firstName && lastName) {
+                if (firstName) {
                     prospects.push({ firstName, lastName, companyName });
                 }
             }
@@ -370,7 +368,6 @@
             isPaused = false;
             isStopped = false;
             
-            // UI setup for running state
             downloadCsvBtn.classList.add('hidden');
             bulkSearchBtn.style.display = 'none';
             bulkControls.style.display = 'flex';
@@ -396,11 +393,11 @@
                 bulkResultsTime.textContent = statusText;
 
                 const prospect = prospects[currentIndex];
-                const urlPatterns = generateUrlPatterns(prospect.firstName.toLowerCase(), prospect.lastName.toLowerCase(), prospect.companyName ? prospect.companyName.toLowerCase() : '');
+                const urlPatterns = generateUrlPatterns(prospect.firstName.toLowerCase(), prospect.lastName.toLowerCase(), prospect.companyName.toLowerCase());
                 let foundLinks = [];
 
                 for (let i = 0; i < urlPatterns.length && !isStopped; i += 5) {
-                    if (isPaused) { // Check again in inner loop
+                    if (isPaused) {
                         await new Promise(resolve => { resumeSignal = resolve; });
                     }
                     if (isStopped) break;
@@ -431,8 +428,6 @@
                     downloadCsvBtn.classList.remove('hidden');
                 }
             }
-
-            // Finalize UI
             resetBulkSearchUI(isStopped, processedCount, prospects.length);
         }
 
@@ -444,11 +439,9 @@
             } else {
                 bulkResultsTime.textContent = `Search complete. Processed ${processed} prospects in ${timeTaken.toFixed(1)}s.`;
             }
-
             bulkSearchBtn.style.display = 'flex';
             bulkControls.style.display = 'none';
             bulkBtnText.textContent = 'Process Bulk Upload';
-            
             searchBtn.disabled = false;
             csvFile.disabled = false;
             csvFile.value = '';
@@ -466,7 +459,7 @@
             } else {
                 linksHtml = `<span class="text-gray-400">Not Found</span>`;
             }
-            row.innerHTML = `<td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.firstName}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.lastName}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-500">${result.companyName || 'N/A'}</td><td class="px-6 py-4 align-top text-sm text-gray-800">${linksHtml}</td>`;
+            row.innerHTML = `<td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.firstName}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-800">${result.lastName || ''}</td><td class="px-6 py-4 align-top whitespace-nowrap text-sm text-gray-500">${result.companyName || 'N/A'}</td><td class="px-6 py-4 align-top text-sm text-gray-800">${linksHtml}</td>`;
             bulkResultsTableBody.appendChild(row);
         }
 
@@ -475,9 +468,7 @@
                 alert("No results to export.");
                 return;
             }
-
             const headers = ["First Name", "Last Name", "Company", "Found Links"];
-            
             const formatCell = (cellData) => {
                 const text = String(cellData);
                 if (/[",]/.test(text)) {
@@ -486,45 +477,30 @@
                 }
                 return text;
             };
-            
             const rows = bulkResultsData.flatMap(prospect => {
                 if (prospect.foundLinks.length === 0) {
-                    const rowData = [
-                        prospect.firstName,
-                        prospect.lastName,
-                        prospect.companyName || '',
-                        'Not Found'
-                    ];
+                    const rowData = [prospect.firstName, prospect.lastName || '', prospect.companyName || '', 'Not Found'];
                     return [rowData.map(formatCell).join(',')];
                 } else {
                     return prospect.foundLinks.map(link => {
-                        const rowData = [
-                            prospect.firstName,
-                            prospect.lastName,
-                            prospect.companyName || '',
-                            link
-                        ];
+                        const rowData = [prospect.firstName, prospect.lastName || '', prospect.companyName || '', link];
                         return rowData.map(formatCell).join(',');
                     });
                 }
             });
-
             const csvContent = [headers.join(','), ...rows].join('\r\n');
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
-            
             link.setAttribute("href", url);
             link.setAttribute("download", "calendly_links_export.csv");
             link.style.visibility = 'hidden';
-            
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
         }
         
-        // --- Single Search Functions (Unchanged) ---
         function startSearch(firstName, lastName, companyName) {
             validUrls = []; testedUrls = 0; totalUrls = 0;
             btnText.textContent = 'Searching...'; spinner.classList.remove('hidden');
@@ -538,19 +514,49 @@
         
         function generateUrlPatterns(firstName, lastName, companyName) {
             const patterns = [];
-            const cleanFirstName = firstName.replace(/[^a-z0-9]/g, '');
-            const cleanLastName = lastName.replace(/[^a-z0-9]/g, '');
-            const cleanCompanyName = companyName.replace(/[^a-z0-9]/g, '');
-            const namePatterns = [`${cleanFirstName}`, `${cleanLastName}`, `${cleanFirstName}${cleanLastName}`, `${cleanLastName}${cleanFirstName}`, `${cleanFirstName}.${cleanLastName}`, `${cleanLastName}.${cleanFirstName}`, `${cleanFirstName}-${cleanLastName}`, `${cleanLastName}-${cleanFirstName}`, `${cleanFirstName}_${cleanLastName}`, `${cleanLastName}_${cleanFirstName}`, `${cleanFirstName.charAt(0)}${cleanLastName}`, `${cleanFirstName}${cleanLastName.charAt(0)}`, `${cleanFirstName.charAt(0)}.${cleanLastName}`, `${cleanFirstName.charAt(0)}-${cleanLastName}`, `${cleanFirstName.charAt(0)}_${cleanLastName}`, `${cleanFirstName}-${cleanLastName.charAt(0)}`, `${cleanFirstName}.${cleanLastName.charAt(0)}`, `${cleanFirstName}_${cleanLastName.charAt(0)}`];
-            namePatterns.forEach(pattern => { patterns.push({ url: `https://calendly.com/${pattern}`, pattern: pattern }); });
-            if (companyName) {
+            const cleanFirstName = firstName ? firstName.replace(/[^a-z0-9]/g, '') : '';
+            const cleanLastName = lastName ? lastName.replace(/[^a-z0-9]/g, '') : '';
+            const cleanCompanyName = companyName ? companyName.replace(/[^a-z0-9]/g, '') : '';
+
+            let basePatterns = [];
+            if (cleanFirstName) {
+                basePatterns.push(cleanFirstName);
+            }
+            if (cleanLastName) {
+                basePatterns.push(cleanLastName);
+            }
+            if (cleanFirstName && cleanLastName) {
+                basePatterns.push(
+                    `${cleanFirstName}${cleanLastName}`, `${cleanLastName}${cleanFirstName}`,
+                    `${cleanFirstName}.${cleanLastName}`, `${cleanLastName}.${cleanFirstName}`,
+                    `${cleanFirstName}-${cleanLastName}`, `${cleanLastName}-${cleanFirstName}`,
+                    `${cleanFirstName}_${cleanLastName}`, `${cleanLastName}_${cleanFirstName}`,
+                    `${cleanFirstName.charAt(0)}${cleanLastName}`, `${cleanFirstName}${cleanLastName.charAt(0)}`,
+                    `${cleanFirstName.charAt(0)}.${cleanLastName}`, `${cleanFirstName.charAt(0)}-${cleanLastName}`,
+                    `${cleanFirstName.charAt(0)}_${cleanLastName}`, `${cleanFirstName}-${cleanLastName.charAt(0)}`,
+                    `${cleanFirstName}.${cleanLastName.charAt(0)}`, `${cleanFirstName}_${cleanLastName.charAt(0)}`
+                );
+            }
+
+            const uniqueBasePatterns = [...new Set(basePatterns)];
+            uniqueBasePatterns.forEach(pattern => {
+                patterns.push({ url: `https://calendly.com/${pattern}`, pattern: pattern });
+            });
+
+            if (cleanCompanyName) {
                 patterns.push({ url: `https://calendly.com/${cleanCompanyName}`, pattern: cleanCompanyName });
-                namePatterns.forEach(pattern => {
-                    const combinedPatterns = [`${pattern}-${cleanCompanyName}`, `${cleanCompanyName}-${pattern}`, `${pattern}.${cleanCompanyName}`, `${cleanCompanyName}.${pattern}`, `${pattern}_${cleanCompanyName}`, `${cleanCompanyName}_${pattern}`];
-                    combinedPatterns.forEach(combined => { patterns.push({ url: `https://calendly.com/${combined}`, pattern: combined }); });
+                uniqueBasePatterns.forEach(pattern => {
+                    const combinedPatterns = [
+                        `${pattern}-${cleanCompanyName}`, `${cleanCompanyName}-${pattern}`,
+                        `${pattern}.${cleanCompanyName}`, `${cleanCompanyName}.${pattern}`,
+                        `${pattern}_${cleanCompanyName}`, `${cleanCompanyName}_${pattern}`
+                    ];
+                    combinedPatterns.forEach(combined => {
+                        patterns.push({ url: `https://calendly.com/${combined}`, pattern: combined });
+                    });
                 });
             }
-            return patterns;
+            return [...new Set(patterns.map(p => JSON.stringify(p)))].map(s => JSON.parse(s));
         }
         
         async function validateUrlsInBatches(urlPatterns, batchSize, delay) {
@@ -569,7 +575,7 @@
         }
         
         function updateProgress() {
-            const percent = Math.round((testedUrls / totalUrls) * 100);
+            const percent = totalUrls > 0 ? Math.round((testedUrls / totalUrls) * 100) : 0;
             progressBar.style.width = `${percent}%`;
             progressFraction.textContent = `${testedUrls}/${totalUrls}`;
             progressText.textContent = testedUrls === totalUrls ? `Finishing up...` : `Testing URLs...`;
